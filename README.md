@@ -1,5 +1,5 @@
-We have used Object Oriented Programming to write modular code.
-We have created a class called NeuralNetworkClassifier whose constructor can take the following parameters:
+This project uses Object Oriented Programming for modularity.
+The core of this project is the class NeuralNetworkClassifier whose constructor can take the following parameters:
 	1) no_of_neurons - A list which represents the architecture of the neural network. (i.e) number of neurons in each of the hidden layer
 	2) n_class - Number of classes
 	3) alpha - L2 regularization weight decay parameter. Default value is 0 which means no L2 regularization.
@@ -11,7 +11,7 @@ We have created a class called NeuralNetworkClassifier whose constructor can tak
 This class has three useful methods namely fit, predict and accuracy.
 
 1) fit(x, y, batch_size=BATCH_SIZE, epochs=100, eta=0.01, weight_initializer = None)
-To train the neural network.
+To train the neural network classifier.
 
 x - training data
 y - training labels
