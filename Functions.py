@@ -46,9 +46,9 @@ def squared_loss(y, y_hat):
 #         s += y_i * math.log(y_hat_i + 1e-35)
 #     return 0 if s==0 else -s
 
-def cross_entropy(yhat, y_train, k):
-    eIndicator = np.zeros((10, k))
-    eIndicator[y_train, np.arange(k)] = 1
+def cross_entropy(yhat, y_train, n_class, n_examples):
+    eIndicator = np.zeros((n_class, n_examples))
+    eIndicator[y_train, np.arange(n_examples)] = 1
     eIndicator = eIndicator * yhat
     eIndicator = eIndicator.sum(axis=0)
     eIndicator = np.log(eIndicator)

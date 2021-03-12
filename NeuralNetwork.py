@@ -7,22 +7,20 @@ Created on Thu Mar 11 18:38:49 2021
 
 import Functions as funs
 import numpy as np
+import time
 
 BATCH_SIZE = 600
 
 
 class NeuralNetworkClassifier:
-    def __init__(self, hidden_layers, hidden_units, n_class, activation='sigmoid',
-                 output='softmax', output_units=1, loss='cross_entropy', optimizer=None):
+    def __init__(self, no_of_neurons, n_class, activation='sigmoid',
+                 output='softmax', loss='cross_entropy', optimizer=None):
         np.random.seed(13)
-        self.hidden_layers = hidden_layers
-        if len(hidden_units) != hidden_layers:
-            raise Exception('Size of hidden_units array must be same as the number of hidden_layers')
-        self.hidden_units = hidden_units
+        self.hidden_layers = len(no_of_neurons)
+        self.no_of_neurons = no_of_neurons
         self.n_class = n_class
         self.activation = activation
         self.output = output
-        self.output_units = output_units
         self.loss = loss
         self.optimizer = optimizer
         self.is_trained = False
@@ -57,25 +55,36 @@ class NeuralNetworkClassifier:
         if self.output == 'softmax':
             self.output_function = funs.softmax
             # TODO set output function derivative
+        else:
+            raise Exception('Unsupported output function')
 
     def init_loss_function(self):
         if self.loss == 'squared_loss':
             self.loss_function = funs.squared_loss
         elif self.loss == 'cross_entropy':
             self.loss_function = funs.cross_entropy
+        else:
+            raise Exception('Unsupported loss function')
 
-    def init_weights(self, input_size):
-        self.parameters['W1'] = np.random.uniform(low=-0.5, high=0.5, size=(self.hidden_units[0], input_size))
-        self.parameters['b1'] = np.random.uniform(low=-0.5, high=0.5, size=(self.hidden_units[0], 1))
+    def init_weights(self, input_size, initializer = None):
+        if initializer == 'Xavier':
+            sdi = np.sqrt(6.0 / (input_size + self.no_of_neurons[0]))
+            sdo = np.sqrt(6.0 / (self.no_of_neurons[-1] + self.n_class))
+        else:
+            sdi = 0.5
+            sdo = 0.5
+        self.parameters['W1'] = np.random.uniform(low=-sdi, high=sdi, size=(self.no_of_neurons[0], input_size))
+        self.parameters['b1'] = np.random.uniform(low=-sdi, high=sdi, size=(self.no_of_neurons[0], 1))
         for i in range(2, self.hidden_layers + 1):
-            self.parameters['W' + str(i)] = np.random.uniform(low=-0.5, high=0.5,
-                                                              size=(self.hidden_units[i - 1], self.hidden_units[i - 2]))
-            self.parameters['b' + str(i)] = np.random.uniform(low=-0.5, high=0.5, size=(self.hidden_units[i - 1], 1))
+            sd = np.sqrt(6.0 / (self.no_of_neurons[i - 2] + self.no_of_neurons[i - 1])) if initializer == 'Xavier' else 0.5
+            self.parameters['W' + str(i)] = np.random.uniform(low=-sd, high=sd,
+                                                              size=(self.no_of_neurons[i - 1], self.no_of_neurons[i - 2]))
+            self.parameters['b' + str(i)] = np.random.uniform(low=-sd, high=sd, size=(self.no_of_neurons[i - 1], 1))
         # Output W
-        self.parameters['W' + str(self.hidden_layers + 1)] = np.random.uniform(low=-0.5, high=0.5,
+        self.parameters['W' + str(self.hidden_layers + 1)] = np.random.uniform(low=-sdo, high=sdo,
                                                                                size=(
-                                                                                   self.n_class, self.hidden_units[-1]))
-        self.parameters['b' + str(self.hidden_layers + 1)] = np.random.uniform(low=-0.5, high=0.5,
+                                                                                   self.n_class, self.no_of_neurons[-1]))
+        self.parameters['b' + str(self.hidden_layers + 1)] = np.random.uniform(low=-sdo, high=sdo,
                                                                                size=(self.n_class, 1))
 
     def make_zeros_like(self, parameters):
@@ -116,7 +125,7 @@ class NeuralNetworkClassifier:
         y = funs.softmax(preactivation['a' + str(self.hidden_layers + 1)])
         return (preactivation, activation, y)
 
-    def backPropagation(self, activation, preactivation, yhat, X, y_train):
+    def backPropagation(self, activation, preactivation, yhat, X, y_train, alpha = 0):
         grads = {}
         eIndicator = np.zeros((self.n_class, X.shape[0]))
         eIndicator[y_train, np.arange(X.shape[0])] = 1
@@ -133,18 +142,18 @@ class NeuralNetworkClassifier:
     def update_loss_accuracy(self, X_train, X_val, y_train, y_val):
         _, _, yhat = self.forwardPropagation(X_train)
         _, _, yhatval = self.forwardPropagation(X_val)
-        self.loss_history.append(self.loss_function(yhatval, y_val, X_val))
-        self.val_loss_history.append(self.loss_function(yhat, y_train, X_train))
+        self.loss_history.append(self.loss_function(yhatval, y_val, self.n_class, X_val.shape[0]))
+        self.val_loss_history.append(self.loss_function(yhat, y_train, self.n_class, X_train.shape[0]))
         self.accuracy_history.append(self.accuracy(X_val, y_val))
         self.val_accuracy_history.append(self.accuracy(X_train, y_train))
 
     def vanillaGradDescent(self, X_train, y_train, X_val, y_val, epochs, eta, n_examples, batchSize):
         t = 0
-        while (t < epochs):
-            print("Epoch ", t)
+        avgEpochTime = 0.0
+        while t < epochs:
+            es = time.time()
             mini = 0
             while (mini < (n_examples / batchSize)):
-                # print("Batch ",mini)
                 X_mini = X_train[(mini * batchSize):((mini + 1) * batchSize - 1)]
                 y_mini = y_train[(mini * batchSize):((mini + 1) * batchSize - 1)]
                 preactivation, activation, yhat = self.forwardPropagation(X_mini)
@@ -154,12 +163,22 @@ class NeuralNetworkClassifier:
                     self.parameters['b' + str(i)] -= eta * (1.0 / X_mini.shape[0]) * gradients['b' + str(i)]
                 mini += 1
             t += 1
+            # compute avg epoch time for estimation of remaining time
+            ee = time.time()
+            diff = int(ee - es)  # in secs
+            avgEpochTime = int(((avgEpochTime * (t - 1)) + diff) / t)
+            est = (epochs - t) * avgEpochTime
+            if (t - 1) % 10 == 0:
+                print('%d epochs remaining. Estimated time remaining : %d hrs %d mins %d secs' % (
+                    epochs - t, est // 3600, ((est % 3600) // 60), (est % 3600) % 60))
+
             self.update_loss_accuracy(X_train, X_val, y_train, y_val)
 
     def sgd(self, X_train, y_train, X_val, y_val, epochs, eta):
         t = 0
-        while (t < epochs):
-            print("iter ", t)
+        avgEpochTime = 0.0
+        while t < epochs:
+            es = time.time()
             # shuffle the data
             ids = np.random.permutation(len(X_train))
             X_random = X_train[ids]
@@ -173,6 +192,15 @@ class NeuralNetworkClassifier:
                     self.parameters['W' + str(i)] -= eta * gradients['W' + str(i)]
                     self.parameters['b' + str(i)] -= eta * gradients['b' + str(i)]
             t += 1
+            # compute avg epoch time for estimation of remaining time
+            ee = time.time()
+            diff = int(ee - es)  # in secs
+            avgEpochTime = int(((avgEpochTime * (t - 1)) + diff) / t)
+            est = (epochs - t) * avgEpochTime
+            if (t - 1) % 10 == 0:
+                print('%d epochs remaining. Estimated time remaining : %d hrs %d mins %d secs' % (
+                    epochs - t, est // 3600, ((est % 3600) // 60), (est % 3600) % 60))
+
             self.update_loss_accuracy(X_train, X_val, y_train, y_val)
 
     def momentumGD(self, X_train, y_train, X_val, y_val, epochs, eta, n_examples, batchSize):
@@ -180,16 +208,17 @@ class NeuralNetworkClassifier:
         prevW = {}
         prevb = {}
         gamma = 0.9
-        prevW['W' + str(1)] = np.zeros((self.hidden_layers[0], X_train.shape[1]))
-        prevb['b' + str(1)] = np.zeros((self.hidden_layers[0], 1))
+        prevW['W' + str(1)] = np.zeros((self.no_of_neurons[0], X_train.shape[1]))
+        prevb['b' + str(1)] = np.zeros((self.no_of_neurons[0], 1))
         for i in range(2, self.hidden_layers + 1):
-            prevW['W' + str(i)] = np.zeros((self.hidden_layers[i - 1], self.hidden_layers[i - 2]))
-            prevb['b' + str(i)] = np.zeros((self.hidden_layers[i - 1], 1))
-        prevW['W' + str(self.hidden_layers + 1)] = np.zeros((self.n_class, self.hidden_layers[-1]))
+            prevW['W' + str(i)] = np.zeros((self.no_of_neurons[i - 1], self.no_of_neurons[i - 2]))
+            prevb['b' + str(i)] = np.zeros((self.no_of_neurons[i - 1], 1))
+        prevW['W' + str(self.hidden_layers + 1)] = np.zeros((self.n_class, self.no_of_neurons[-1]))
         prevb['b' + str(self.hidden_layers + 1)] = np.zeros((self.n_class, 1))
         t = 0
-        while (t < epochs):
-            print("Epoch ", t)
+        avgEpochTime = 0.0
+        while t < epochs:
+            es = time.time()
             mini = 0
             while (mini < (n_examples / batchSize)):
                 # print("Batch ",mini)
@@ -207,24 +236,49 @@ class NeuralNetworkClassifier:
                     prevb['b' + str(i)] = b
                 mini += 1
             t += 1
+            # compute avg epoch time for estimation of remaining time
+            ee = time.time()
+            diff = int(ee - es)  # in secs
+            avgEpochTime = int(((avgEpochTime * (t - 1)) + diff) / t)
+            est = (epochs - t) * avgEpochTime
+            if (t - 1) % 10 == 0:
+                print('%d epochs remaining. Estimated time remaining : %d hrs %d mins %d secs' % (
+                    epochs - t, est // 3600, ((est % 3600) // 60), (est % 3600) % 60))
+
             self.update_loss_accuracy(X_train, X_val, y_train, y_val)
 
-    def nag(self, X_train, y_train, X_val, y_val, epochs, eta):
+    def nag(self, X_train, y_train, X_val, y_val, epochs, eta, n_examples, batchSize):
         t = 0
         prev_update = self.make_zeros_like(self.parameters)
         gamma = 0.9
-        while (t < epochs):
-            print("iter ", t)
-            # do partial updates
-            update = self.multiply_parameters(prev_update, gamma)
-            self.update_parameters(self.parameters, update)
-            preactivation, activation, yhat = self.forwardPropagation(X_train)
-            gradients = self.backPropagation(activation, preactivation, yhat, X_train, y_train)
-            eta_times_grad = self.multiply_parameters(gradients, eta * (1.0 / X_train.shape[0]))
-            self.update_parameters(self.parameters, eta_times_grad)
-            self.update_parameters(update, eta_times_grad, subtract=False)
-            prev_update = update
+        avgEpochTime = 0.0
+        while t < epochs:
+            es = time.time()
+            mini = 0
+            while (mini < (n_examples / batchSize)):
+                # print("Batch ",mini)
+                X_mini = X_train[(mini * batchSize):((mini + 1) * batchSize - 1)]
+                y_mini = y_train[(mini * batchSize):((mini + 1) * batchSize - 1)]
+                # do partial updates
+                update = self.multiply_parameters(prev_update, gamma)
+                self.update_parameters(self.parameters, update)
+                preactivation, activation, yhat = self.forwardPropagation(X_mini)
+                gradients = self.backPropagation(activation, preactivation, yhat, X_mini, y_mini)
+                eta_times_grad = self.multiply_parameters(gradients, eta * (1.0 / X_mini.shape[0]))
+                self.update_parameters(self.parameters, eta_times_grad)
+                self.update_parameters(update, eta_times_grad, subtract=False)
+                prev_update = update
+                mini += 1
             t += 1
+            # compute avg epoch time for estimation of remaining time
+            ee = time.time()
+            diff = int(ee - es)  # in secs
+            avgEpochTime = int(((avgEpochTime * (t - 1)) + diff) / t)
+            est = (epochs - t) * avgEpochTime
+            if (t - 1) % 10 == 0:
+                print('%d epochs remaining. Estimated time remaining : %d hrs %d mins %d secs' % (
+                    epochs - t, est // 3600, ((est % 3600) // 60), (est % 3600) % 60))
+
             self.update_loss_accuracy(X_train, X_val, y_train, y_val)
 
     def rmsProp(self, X_train, y_train, X_val, y_val, epochs, eta, n_examples, batchSize):
@@ -233,15 +287,17 @@ class NeuralNetworkClassifier:
         prevb = {}
         epsilon = 1e-8
         beta = 0.9
-        prevW['W' + str(1)] = np.zeros((self.hidden_layers[0], X_train.shape[1]))
-        prevb['b' + str(1)] = np.zeros((self.hidden_layers[0], 1))
+        prevW['W' + str(1)] = np.zeros((self.no_of_neurons[0], X_train.shape[1]))
+        prevb['b' + str(1)] = np.zeros((self.no_of_neurons[0], 1))
         for i in range(2, self.hidden_layers + 1):
-            prevW['W' + str(i)] = np.zeros((self.hidden_layers[i - 1], self.hidden_layers[i - 2]))
-            prevb['b' + str(i)] = np.zeros((self.hidden_layers[i - 1], 1))
-        prevW['W' + str(self.hidden_layers + 1)] = np.zeros((self.n_class, self.hidden_layers[-1]))
+            prevW['W' + str(i)] = np.zeros((self.no_of_neurons[i - 1], self.no_of_neurons[i - 2]))
+            prevb['b' + str(i)] = np.zeros((self.no_of_neurons[i - 1], 1))
+        prevW['W' + str(self.hidden_layers + 1)] = np.zeros((self.n_class, self.no_of_neurons[-1]))
         prevb['b' + str(self.hidden_layers + 1)] = np.zeros((self.n_class, 1))
         t = 0
+        avgEpochTime = 0.0
         while t < epochs:
+            es = time.time()
             mini = 0
             while mini < (n_examples / batchSize):
                 X_mini = X_train[(mini * batchSize):((mini + 1) * batchSize - 1)]
@@ -258,6 +314,15 @@ class NeuralNetworkClassifier:
                             (eta / np.sqrt(prevb['b' + str(i)] + epsilon)) * gradients['b' + str(i)])
                 mini += 1
             t += 1
+            # compute avg epoch time for estimation of remaining time
+            ee = time.time()
+            diff = int(ee - es)  # in secs
+            avgEpochTime = int(((avgEpochTime * (t - 1)) + diff) / t)
+            est = (epochs - t) * avgEpochTime
+            if (t - 1) % 10 == 0:
+                print('%d epochs remaining. Estimated time remaining : %d hrs %d mins %d secs' % (
+                    epochs - t, est // 3600, ((est % 3600) // 60), (est % 3600) % 60))
+
             self.update_loss_accuracy(X_train, X_val, y_train, y_val)
 
     def adam(self, X_train, y_train, X_val, y_val, epochs, eta, n_examples, batchSize):
@@ -268,26 +333,27 @@ class NeuralNetworkClassifier:
         epsilon = 1e-8
         beta1 = 0.9
         beta2 = 0.999
-        prevW['W' + str(1)] = np.zeros((self.hidden_layers[0], X_train.shape[1]))
-        prevb['b' + str(1)] = np.zeros((self.hidden_layers[0], 1))
+        prevW['W' + str(1)] = np.zeros((self.no_of_neurons[0], X_train.shape[1]))
+        prevb['b' + str(1)] = np.zeros((self.no_of_neurons[0], 1))
         for i in range(2, self.hidden_layers + 1):
-            prevW['W' + str(i)] = np.zeros((self.hidden_layers[i - 1], self.hidden_layers[i - 2]))
-            prevb['b' + str(i)] = np.zeros((self.hidden_layers[i - 1], 1))
-        prevW['W' + str(self.hidden_layers + 1)] = np.zeros((self.n_class, self.hidden_layers[-1]))
+            prevW['W' + str(i)] = np.zeros((self.no_of_neurons[i - 1], self.no_of_neurons[i - 2]))
+            prevb['b' + str(i)] = np.zeros((self.no_of_neurons[i - 1], 1))
+        prevW['W' + str(self.hidden_layers + 1)] = np.zeros((self.n_class, self.no_of_neurons[-1]))
         prevb['b' + str(self.hidden_layers + 1)] = np.zeros((self.n_class, 1))
 
-        mW['W' + str(1)] = np.zeros((self.hidden_layers[0], X_train.shape[1]))
-        mb['b' + str(1)] = np.zeros((self.hidden_layers[0], 1))
+        mW['W' + str(1)] = np.zeros((self.no_of_neurons[0], X_train.shape[1]))
+        mb['b' + str(1)] = np.zeros((self.no_of_neurons[0], 1))
         for i in range(2, self.hidden_layers + 1):
-            mW['W' + str(i)] = np.zeros((self.hidden_layers[i - 1], self.hidden_layers[i - 2]))
-            mb['b' + str(i)] = np.zeros((self.hidden_layers[i - 1], 1))
-        mW['W' + str(self.hidden_layers + 1)] = np.zeros((self.n_class, self.hidden_layers[-1]))
+            mW['W' + str(i)] = np.zeros((self.no_of_neurons[i - 1], self.no_of_neurons[i - 2]))
+            mb['b' + str(i)] = np.zeros((self.no_of_neurons[i - 1], 1))
+        mW['W' + str(self.hidden_layers + 1)] = np.zeros((self.n_class, self.no_of_neurons[-1]))
         mb['b' + str(self.hidden_layers + 1)] = np.zeros((self.n_class, 1))
 
         t = 0  # iterations
         f = 0  # update number
+        avgEpochTime = 0.0
         while t < epochs:
-            print("Epoch ", t)
+            es = time.time()
             mini = 0
             while mini < (n_examples / batchSize):
                 X_mini = X_train[(mini * batchSize):((mini + 1) * batchSize - 1)]
@@ -312,6 +378,15 @@ class NeuralNetworkClassifier:
                     self.parameters['b' + str(i)] -= ((eta / np.sqrt(vbHat + epsilon)) * mbHat)
                 mini += 1
             t += 1
+            # compute avg epoch time for estimation of remaining time
+            ee = time.time()
+            diff = int(ee - es)  # in secs
+            avgEpochTime = int(((avgEpochTime * (t - 1)) + diff) / t)
+            est = (epochs - t) * avgEpochTime
+            if (t - 1) % 10 == 0:
+                print('%d epochs remaining. Estimated time remaining : %d hrs %d mins %d secs' % (
+                    epochs - t, est // 3600, ((est % 3600) // 60), (est % 3600) % 60))
+
             self.update_loss_accuracy(X_train, X_val, y_train, y_val)
 
     def nadam(self, X_train, y_train, X_val, y_val, epochs, eta, n_examples, batchSize):
@@ -323,26 +398,27 @@ class NeuralNetworkClassifier:
         epsilon = 1e-8
         beta1 = 0.9
         beta2 = 0.999
-        prevW['W' + str(1)] = np.zeros((self.hidden_layers[0], X_train.shape[1]))
-        prevb['b' + str(1)] = np.zeros((self.hidden_layers[0], 1))
+        prevW['W' + str(1)] = np.zeros((self.no_of_neurons[0], X_train.shape[1]))
+        prevb['b' + str(1)] = np.zeros((self.no_of_neurons[0], 1))
         for i in range(2, self.hidden_layers + 1):
-            prevW['W' + str(i)] = np.zeros((self.hidden_layers[i - 1], self.hidden_layers[i - 2]))
-            prevb['b' + str(i)] = np.zeros((self.hidden_layers[i - 1], 1))
-        prevW['W' + str(self.hidden_layers + 1)] = np.zeros((self.n_class, self.hidden_layers[-1]))
+            prevW['W' + str(i)] = np.zeros((self.no_of_neurons[i - 1], self.no_of_neurons[i - 2]))
+            prevb['b' + str(i)] = np.zeros((self.no_of_neurons[i - 1], 1))
+        prevW['W' + str(self.hidden_layers + 1)] = np.zeros((self.n_class, self.no_of_neurons[-1]))
         prevb['b' + str(self.hidden_layers + 1)] = np.zeros((self.n_class, 1))
 
-        mW['W' + str(1)] = np.zeros((self.hidden_layers[0], X_train.shape[1]))
-        mb['b' + str(1)] = np.zeros((self.hidden_layers[0], 1))
+        mW['W' + str(1)] = np.zeros((self.no_of_neurons[0], X_train.shape[1]))
+        mb['b' + str(1)] = np.zeros((self.no_of_neurons[0], 1))
         for i in range(2, self.hidden_layers + 1):
-            mW['W' + str(i)] = np.zeros((self.hidden_layers[i - 1], self.hidden_layers[i - 2]))
-            mb['b' + str(i)] = np.zeros((self.hidden_layers[i - 1], 1))
-        mW['W' + str(self.hidden_layers + 1)] = np.zeros((self.n_class, self.hidden_layers[-1]))
+            mW['W' + str(i)] = np.zeros((self.no_of_neurons[i - 1], self.no_of_neurons[i - 2]))
+            mb['b' + str(i)] = np.zeros((self.no_of_neurons[i - 1], 1))
+        mW['W' + str(self.hidden_layers + 1)] = np.zeros((self.n_class, self.no_of_neurons[-1]))
         mb['b' + str(self.hidden_layers + 1)] = np.zeros((self.n_class, 1))
 
         t = 0  # iterations
         f = 0  # update number
+        avgEpochTime = 0.0
         while t < epochs:
-            print("Epoch ", t)
+            es = time.time()
             mini = 0
             while mini < (n_examples / batchSize):
                 X_mini = X_train[(mini * batchSize):((mini + 1) * batchSize - 1)]
@@ -370,26 +446,36 @@ class NeuralNetworkClassifier:
                     self.parameters['b' + str(i)] -= ((eta / np.sqrt(vbHat + epsilon)) * mbarb)
                 mini += 1
             t += 1
+            # compute avg epoch time for estimation of remaining time
+            ee = time.time()
+            diff = int(ee - es)  # in secs
+            avgEpochTime = int(((avgEpochTime * (t - 1)) + diff) / t)
+            est = (epochs - t) * avgEpochTime
+            if (t - 1) % 10 == 0:
+                print('%d epochs remaining. Estimated time remaining : %d hrs %d mins %d secs' % (
+                    epochs - t, est // 3600, ((est % 3600) // 60), (est % 3600) % 60))
+
             self.update_loss_accuracy(X_train, X_val, y_train, y_val)
 
-    def fit(self, x, y, batch_size=BATCH_SIZE, epochs=100, eta=0.01):
+    def fit(self, x, y, batch_size=BATCH_SIZE, epochs=100, eta=0.01, weight_initializer = None):
         # momentum, nesterov, rmsprop, adam, nadam
         # initialize all parameters (weights and bias)
-        self.init_weights(x.shape[1])
+        self.init_weights(x.shape[1], weight_initializer)
         # split data into train and validation set
         indices = np.random.permutation(x.shape[0])
         training_idx = indices[:54000]
         validation_idx = indices[54000:]
         x_train = x[training_idx, :]
         x_val = x[validation_idx, :]
-        y_train = y[training_idx, :]
-        y_val = y[validation_idx, :]
+        y_train = y[training_idx]
+        y_val = y[validation_idx]
         if self.optimizer == 'sgd':
-            self.sgd(x_train, y_train, x_val, y_val, epochs, eta)
+            # self.sgd(x_train, y_train, x_val, y_val, epochs, eta)
+            self.vanillaGradDescent(x_train, y_train, x_val, y_val, epochs, eta, x_train.shape[0], batch_size)
         elif self.optimizer == 'momentum':
             self.momentumGD(x_train, y_train, x_val, y_val, epochs, eta, x_train.shape[0], batch_size)
         elif self.optimizer == 'nesterov':
-            self.nag(x_train, y_train, x_val, y_val, epochs, eta)
+            self.nag(x_train, y_train, x_val, y_val, epochs, eta, x_train.shape[0], batch_size)
         elif self.optimizer == 'rmsprop':
             self.rmsProp(x_train, y_train, x_val, y_val, epochs, eta, x_train.shape[0], batch_size)
         elif self.optimizer == 'adam':
@@ -401,16 +487,16 @@ class NeuralNetworkClassifier:
         else:
             raise Exception("Unsupported optimizer.")
 
-    def predict(self, X_test, y_test):
-        if not self.is_trained:
-            print('Network is not trained. Fit has to be invoked before calling predict')
-            return None
+    def predict(self, X_test):
+        # if not self.is_trained:
+        #     print('Network is not trained. Fit has to be invoked before calling predict')
+        #     return None
         # do a forward pass
         _, _, y_hat = self.forwardPropagation(X_test)
         y_hat = y_hat.argmax(axis=0)
         return y_hat
 
     def accuracy(self, X_test, y_test):
-        y_hat = self.predict(X_test, y_test)
+        y_hat = self.predict(X_test)
         correctPred = np.sum(y_hat == y_test)
         return (correctPred / X_test.shape[0]) * 100
