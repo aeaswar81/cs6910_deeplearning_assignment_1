@@ -34,10 +34,11 @@ def softmax(X):
     return X / sum
 
 
-def squared_loss(y, y_hat):
-    if y.shape != y_hat.shape:
-        raise Exception('Two arrays should be of same shape')
-    return np.sum(np.square(y - y_hat))
+def squared_loss(y, y_hat, n_class, n_examples):
+    eIndicator = np.zeros((n_class, n_examples))
+    eIndicator[y, np.arange(n_examples)] = 1
+    return np.sum((y_hat - eIndicator)**2) / n_examples
+
 
 
 # def cross_entropy(y, y_hat):
@@ -52,4 +53,4 @@ def cross_entropy(yhat, y_train, n_class, n_examples):
     eIndicator = eIndicator * yhat
     eIndicator = eIndicator.sum(axis=0)
     eIndicator = np.log(eIndicator)
-    return -sum(eIndicator)
+    return -sum(eIndicator)/n_examples

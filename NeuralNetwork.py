@@ -13,12 +13,13 @@ BATCH_SIZE = 600
 
 
 class NeuralNetworkClassifier:
-    def __init__(self, no_of_neurons, n_class, activation='sigmoid',
+    def __init__(self, no_of_neurons, n_class, alpha = 0, activation='sigmoid',
                  output='softmax', loss='cross_entropy', optimizer=None):
         np.random.seed(13)
         self.hidden_layers = len(no_of_neurons)
         self.no_of_neurons = no_of_neurons
         self.n_class = n_class
+        self.alpha = alpha
         self.activation = activation
         self.output = output
         self.loss = loss
@@ -87,6 +88,12 @@ class NeuralNetworkClassifier:
         self.parameters['b' + str(self.hidden_layers + 1)] = np.random.uniform(low=-sdo, high=sdo,
                                                                                size=(self.n_class, 1))
 
+    def sum_of_squared_weights(self):
+        sum = 0.0
+        for i in range(1, self.hidden_layers + 2):
+            sum += np.sum(np.square(self.parameters['W' + str(i)]))
+        return sum
+
     def make_zeros_like(self, parameters):
         zero_parameters = {}
         for k in range(1, self.hidden_layers + 2):
@@ -125,13 +132,21 @@ class NeuralNetworkClassifier:
         y = funs.softmax(preactivation['a' + str(self.hidden_layers + 1)])
         return (preactivation, activation, y)
 
-    def backPropagation(self, activation, preactivation, yhat, X, y_train, alpha = 0):
+    def backPropagation(self, activation, preactivation, yhat, X, y_train):
         grads = {}
         eIndicator = np.zeros((self.n_class, X.shape[0]))
         eIndicator[y_train, np.arange(X.shape[0])] = 1
-        grads['a' + str(self.hidden_layers + 1)] = -(eIndicator - yhat)
+        if self.loss == 'cross_entropy':
+            grads['a' + str(self.hidden_layers + 1)] = -(eIndicator - yhat)
+        elif self.loss == 'squared_loss':
+            r = (yhat - eIndicator) * yhat
+            for i in range(X.shape[0]):
+                r[:, i] = np.dot((np.eye(self.n_class) - yhat[:, i]), r[:, i])
+            grads['a' + str(self.hidden_layers + 1)] = 2 * r
+        else:
+            raise Exception('Unsupported loss function.')
         for j in range(self.hidden_layers + 1, 0, -1):
-            grads['W' + str(j)] = np.dot(grads['a' + str(j)], activation['h' + str(j - 1)].T)
+            grads['W' + str(j)] = np.dot(grads['a' + str(j)], activation['h' + str(j - 1)].T) + self.alpha * self.parameters['W' + str(j)]
             grads['b' + str(j)] = np.sum(grads['a' + str(j)], axis=1, keepdims=True)
             grads['h' + str(j - 1)] = np.dot(self.parameters['W' + str(j)].T, grads['a' + str(j)])
             if j != 1:
@@ -142,8 +157,8 @@ class NeuralNetworkClassifier:
     def update_loss_accuracy(self, X_train, X_val, y_train, y_val):
         _, _, yhat = self.forwardPropagation(X_train)
         _, _, yhatval = self.forwardPropagation(X_val)
-        self.loss_history.append(self.loss_function(yhatval, y_val, self.n_class, X_val.shape[0]))
-        self.val_loss_history.append(self.loss_function(yhat, y_train, self.n_class, X_train.shape[0]))
+        self.loss_history.append(self.loss_function(yhatval, y_val, self.n_class, X_val.shape[0]) + (self.alpha/2) * self.sum_of_squared_weights())
+        self.val_loss_history.append(self.loss_function(yhat, y_train, self.n_class, X_train.shape[0])  + (self.alpha/2) * self.sum_of_squared_weights())
         self.accuracy_history.append(self.accuracy(X_val, y_val))
         self.val_accuracy_history.append(self.accuracy(X_train, y_train))
 
