@@ -34,7 +34,7 @@ def softmax(X):
     return X / sum
 
 
-def squared_loss(y, y_hat, n_class, n_examples):
+def squared_loss(y_hat, y, n_class, n_examples):
     eIndicator = np.zeros((n_class, n_examples))
     eIndicator[y, np.arange(n_examples)] = 1
     return np.sum((y_hat - eIndicator)**2) / n_examples
